@@ -1,11 +1,15 @@
+#!/usr/bin/env python3
+
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, simpledialog
 import pandas as pd
 from docx import Document
 from docx.shared import Mm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+import msoffcrypto
+import io
 
 # 定义内置参数
 PARAMETERS = {
@@ -13,26 +17,36 @@ PARAMETERS = {
     21: {'width': Mm(63.8), 'height': Mm(38), 'cols': 3},  # 三栏
 }
 
-def create_word_document(excel_file, num_areas_per_page):
+def create_word_document(excel_file, num_areas_per_page, password):
     # 读取Excel文件
-    df = pd.read_excel(excel_file)
-
+    try:
+        df = pd.read_excel(excel_file)
+    except Exception as e:
+        # 如果读取失败，尝试使用密码解密
+        with open(excel_file, 'rb') as file:
+            decrypted_file = io.BytesIO()
+            office_file = msoffcrypto.OfficeFile(file)
+            office_file.load_key(password=password)
+            office_file.decrypt(decrypted_file)
+            decrypted_file.seek(0)
+            df = pd.read_excel(decrypted_file)
+            
     # 过滤掉“订单状态”为“已取消”的记录
     df = df[df['订单状态'] != '已取消']
-
+    
     # 提取“下单人”和“商品”列的数据
     order_persons = df['下单人'].tolist()
     products = df['商品'].tolist()
-
+    
     # 获取对应的参数
     params = PARAMETERS[num_areas_per_page]
     area_width = params['width']
     area_height = params['height']
     cols = params['cols']
-
+    
     # 创建一个新的Word文档
     doc = Document()
-
+    
     # 设置页面布局
     section = doc.sections[0]
     section.page_height = Mm(297)  # A4纸的高度 297mm
@@ -41,7 +55,7 @@ def create_word_document(excel_file, num_areas_per_page):
     section.right_margin = Mm(0)
     section.top_margin = Mm(15)
     section.bottom_margin = Mm(5)
-    #如果是10分要注意设置页边距
+    # 如果是10份要注意设置页边距
     # 设置分栏
     sectPr = section._sectPr
     cols_element = sectPr.xpath('./w:cols')
@@ -50,24 +64,24 @@ def create_word_document(excel_file, num_areas_per_page):
         sectPr.append(cols_element)
     else:
         cols_element = cols_element[0]
-
+        
     cols_element.set(qn('w:num'), str(cols))  # 设置分栏数
     cols_element.set(qn('w:space'), '100')  # 设置分栏间距，单位为twips（1/20 点），这里设置为100 twips（5 点）
-
+    
     # 添加数据到每个区域
     i = 0
     while i < len(order_persons):
         order_person = order_persons[i]
         product = products[i]
-
+        
         # 计算当前区域的行和列
         row = i // cols
         col = i % cols
-
+        
         # 计算当前区域的左上角位置
         left = col * area_width
         top = row * area_height
-
+        
         # 添加表格
         table = doc.add_table(rows=1, cols=1)
         table.style = 'Table Grid'
@@ -75,12 +89,12 @@ def create_word_document(excel_file, num_areas_per_page):
         table.allow_autofit = False
         table.columns[0].width = area_width
         table.rows[0].height = area_height
-
+        
         # 设置表格位置
         table.alignment = WD_ALIGN_PARAGRAPH.CENTER
         table.left_indent = left
         table.top_indent = top
-
+        
         # 填充表格数据
         cell = table.cell(0, 0)
         if num_areas_per_page == 21 and len(product) > 50:
@@ -88,18 +102,18 @@ def create_word_document(excel_file, num_areas_per_page):
         else:
             cell.text = f"{order_person}\n{product}"
         cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-
+        
         # 设置垂直对齐方式
         tc = cell._tc
         tcPr = tc.get_or_add_tcPr()
         vAlign = OxmlElement('w:vAlign')
         vAlign.set(qn('w:val'), 'center')
         tcPr.append(vAlign)
-
+        
         # 每页的单元格数量后插入一个分页符
         if (i + 1) % num_areas_per_page == 0:
             doc.add_page_break()
-
+            
         # 如果商品字段内容超过50字符（21格），进行截断并写入新的一格
         if num_areas_per_page == 21 and len(product) > 50:
             # 截断商品字段
@@ -110,35 +124,35 @@ def create_word_document(excel_file, num_areas_per_page):
                 col = i % cols
                 left = col * area_width
                 top = row * area_height
-
+                
                 table = doc.add_table(rows=1, cols=1)
                 table.style = 'Table Grid'
                 table.autofit = False
                 table.allow_autofit = False
                 table.columns[0].width = area_width
                 table.rows[0].height = area_height
-
+                
                 table.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 table.left_indent = left
                 table.top_indent = top
-
+                
                 cell = table.cell(0, 0)
                 cell.text = f"{order_person}\n{part}"
                 cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-
+                
                 tc = cell._tc
                 tcPr = tc.get_or_add_tcPr()
                 vAlign = OxmlElement('w:vAlign')
                 vAlign.set(qn('w:val'), 'center')
                 tcPr.append(vAlign)
-
+                
                 if (i + 1) % num_areas_per_page == 0:
                     doc.add_page_break()
-
+                    
         i += 1
-
+        
     # 保存Word文档
-    output_docx = '订单信息.docx'
+    output_docx = '订单信息-打印版.docx'
     doc.save(output_docx)
     messagebox.showinfo("成功", f"已将数据写入 {output_docx}")
 
@@ -153,7 +167,16 @@ def generate_document():
     num_areas_per_page = int(var_num_areas.get())
 
     if excel_file and num_areas_per_page:
-        create_word_document(excel_file, num_areas_per_page)
+        # 尝试读取Excel文件
+        try:
+            create_word_document(excel_file, num_areas_per_page, None)
+        except Exception as e:
+            # 如果读取失败，提示输入密码
+            password = simpledialog.askstring("输入密码", "请输入Excel文件的密码:", show='*')
+            if password:
+                create_word_document(excel_file, num_areas_per_page, password)
+            else:
+                messagebox.showwarning("警告", "未输入密码，无法读取文件")
     else:
         messagebox.showwarning("警告", "请填写所有字段")
 
