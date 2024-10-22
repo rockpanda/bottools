@@ -70,13 +70,15 @@ def create_word_document(excel_file, num_areas_per_page, password):
     
     # 添加数据到每个区域
     i = 0
+    page_count = 0
     while i < len(order_persons):
-        order_person = order_persons[i]
-        product = products[i]
+        original_i = i  # 记录原始索引
+        order_person = order_persons[original_i]
+        product = products[original_i]
         
         # 计算当前区域的行和列
-        row = i // cols
-        col = i % cols
+        row = page_count // cols
+        col = page_count % cols
         
         # 计算当前区域的左上角位置
         left = col * area_width
@@ -111,8 +113,11 @@ def create_word_document(excel_file, num_areas_per_page, password):
         tcPr.append(vAlign)
         
         # 每页的单元格数量后插入一个分页符
-        if (i + 1) % num_areas_per_page == 0:
+        if (page_count + 1) % num_areas_per_page == 0:
             doc.add_page_break()
+            page_count = 0  # 重置页计数器
+        else:
+            page_count += 1
             
         # 如果商品字段内容超过50字符（21格），进行截断并写入新的一格
         if num_areas_per_page == 21 and len(product) > 50:
@@ -120,8 +125,8 @@ def create_word_document(excel_file, num_areas_per_page, password):
             product_parts = [product[j:j+50] for j in range(50, len(product), 50)]
             for part in product_parts:
                 i += 1
-                row = i // cols
-                col = i % cols
+                row = page_count // cols
+                col = page_count % cols
                 left = col * area_width
                 top = row * area_height
                 
@@ -146,10 +151,13 @@ def create_word_document(excel_file, num_areas_per_page, password):
                 vAlign.set(qn('w:val'), 'center')
                 tcPr.append(vAlign)
                 
-                if (i + 1) % num_areas_per_page == 0:
+                if (page_count + 1) % num_areas_per_page == 0:
                     doc.add_page_break()
+                    page_count = 0  # 重置页计数器
+                else:
+                    page_count += 1
                     
-        i += 1
+        i = original_i + 1  # 恢复原始索引并递增
         
     # 保存Word文档
     output_docx = '订单信息-打印版.docx'
