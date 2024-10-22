@@ -1,5 +1,5 @@
-#pip install pandas python-docx
-#带分割线
+import tkinter as tk
+from tkinter import filedialog, messagebox
 import pandas as pd
 from docx import Document
 from docx.shared import Mm
@@ -7,82 +7,187 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
-# 读取Excel文件
-excel_file = '订单列表.xlsx'  # 替换为你的Excel文件路径
-sheet_name = '订单列表'  # 替换为你的Sheet名称
+# 定义内置参数
+PARAMETERS = {
+    10: {'width': Mm(100), 'height': Mm(55), 'cols': 2},  # 两栏
+    21: {'width': Mm(63.8), 'height': Mm(38), 'cols': 3},  # 三栏
+}
 
-# 读取Excel中的数据
-df = pd.read_excel(excel_file, sheet_name=sheet_name)
+def create_word_document(excel_file, num_areas_per_page):
+    # 读取Excel文件
+    df = pd.read_excel(excel_file)
 
-# 提取“下单人”和“商品”列的数据
-order_persons = df['下单人'].tolist()
-products = df['商品'].tolist()
+    # 过滤掉“订单状态”为“已取消”的记录
+    df = df[df['订单状态'] != '已取消']
 
-# 创建一个新的Word文档
-doc = Document()
+    # 提取“下单人”和“商品”列的数据
+    order_persons = df['下单人'].tolist()
+    products = df['商品'].tolist()
 
-# 设置页面布局
-section = doc.sections[0]
-section.page_height = Mm(297)  # A4纸的高度 297mm
-section.page_width = Mm(210)  # A4纸的宽度 210mm
-section.left_margin = Mm(5)
-section.right_margin = Mm(5)
-section.top_margin = Mm(5)
-section.bottom_margin = Mm(5)
+    # 获取对应的参数
+    params = PARAMETERS[num_areas_per_page]
+    area_width = params['width']
+    area_height = params['height']
+    cols = params['cols']
 
-# 设置分栏
-sectPr = section._sectPr
-cols = sectPr.xpath('./w:cols')[0]
-cols.set(qn('w:num'), '2')  # 设置分栏数为2
+    # 创建一个新的Word文档
+    doc = Document()
 
-# 计算每个区域的宽度和高度
-area_width = Mm(100)  # 100mm
-area_height = Mm(55)  # 55mm
+    # 设置页面布局
+    section = doc.sections[0]
+    section.page_height = Mm(297)  # A4纸的高度 297mm
+    section.page_width = Mm(210)  # A4纸的宽度 210mm
+    section.left_margin = Mm(5)
+    section.right_margin = Mm(0)
+    section.top_margin = Mm(15)
+    section.bottom_margin = Mm(5)
+    #如果是10分要注意设置页边距
+    # 设置分栏
+    sectPr = section._sectPr
+    cols_element = sectPr.xpath('./w:cols')
+    if not cols_element:
+        cols_element = OxmlElement('w:cols')
+        sectPr.append(cols_element)
+    else:
+        cols_element = cols_element[0]
 
-# 每页10个区域
-num_areas_per_page = 10
+    cols_element.set(qn('w:num'), str(cols))  # 设置分栏数
+    cols_element.set(qn('w:space'), '100')  # 设置分栏间距，单位为twips（1/20 点），这里设置为100 twips（5 点）
 
-# 添加数据到每个区域
-for i, (order_person, product) in enumerate(zip(order_persons, products)):
-    # 计算当前区域的行和列
-    row = i // 2
-    col = i % 2
+    # 添加数据到每个区域
+    i = 0
+    while i < len(order_persons):
+        order_person = order_persons[i]
+        product = products[i]
 
-    # 计算当前区域的左上角位置
-    left = col * area_width
-    top = row * area_height
+        # 计算当前区域的行和列
+        row = i // cols
+        col = i % cols
 
-    # 添加表格
-    table = doc.add_table(rows=1, cols=1)
-    table.style = 'Table Grid'
-    table.autofit = False
-    table.allow_autofit = False
-    table.columns[0].width = area_width
-    table.rows[0].height = area_height
+        # 计算当前区域的左上角位置
+        left = col * area_width
+        top = row * area_height
 
-    # 设置表格位置
-    table.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    table.left_indent = left
-    table.top_indent = top
+        # 添加表格
+        table = doc.add_table(rows=1, cols=1)
+        table.style = 'Table Grid'
+        table.autofit = False
+        table.allow_autofit = False
+        table.columns[0].width = area_width
+        table.rows[0].height = area_height
 
-    # 填充表格数据
-    cell = table.cell(0, 0)
-    cell.text = f"{order_person}\n————————\n{product}"
-    cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        # 设置表格位置
+        table.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        table.left_indent = left
+        table.top_indent = top
 
-    # 设置垂直对齐方式
-    tc = cell._tc
-    tcPr = tc.get_or_add_tcPr()
-    vAlign = OxmlElement('w:vAlign')
-    vAlign.set(qn('w:val'), 'center')
-    tcPr.append(vAlign)
+        # 填充表格数据
+        cell = table.cell(0, 0)
+        if num_areas_per_page == 21 and len(product) > 50:
+            cell.text = f"{order_person}\n{product[:50]} ↓↓"  # 只保留前50个字符，并添加“↓↓”标识
+        else:
+            cell.text = f"{order_person}\n{product}"
+        cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    # 每10个区域后插入一个分页符
-    if (i + 1) % num_areas_per_page == 0:
-        doc.add_page_break()
+        # 设置垂直对齐方式
+        tc = cell._tc
+        tcPr = tc.get_or_add_tcPr()
+        vAlign = OxmlElement('w:vAlign')
+        vAlign.set(qn('w:val'), 'center')
+        tcPr.append(vAlign)
 
-# 保存Word文档
-output_docx = '订单信息.docx'  # 替换为你想要保存的Word文件路径
-doc.save(output_docx)
+        # 每页的单元格数量后插入一个分页符
+        if (i + 1) % num_areas_per_page == 0:
+            doc.add_page_break()
 
-print(f"已将数据写入 {output_docx}")
+        # 如果商品字段内容超过50字符（21格），进行截断并写入新的一格
+        if num_areas_per_page == 21 and len(product) > 50:
+            # 截断商品字段
+            product_parts = [product[j:j+50] for j in range(50, len(product), 50)]
+            for part in product_parts:
+                i += 1
+                row = i // cols
+                col = i % cols
+                left = col * area_width
+                top = row * area_height
+
+                table = doc.add_table(rows=1, cols=1)
+                table.style = 'Table Grid'
+                table.autofit = False
+                table.allow_autofit = False
+                table.columns[0].width = area_width
+                table.rows[0].height = area_height
+
+                table.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                table.left_indent = left
+                table.top_indent = top
+
+                cell = table.cell(0, 0)
+                cell.text = f"{order_person}\n{part}"
+                cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+                tc = cell._tc
+                tcPr = tc.get_or_add_tcPr()
+                vAlign = OxmlElement('w:vAlign')
+                vAlign.set(qn('w:val'), 'center')
+                tcPr.append(vAlign)
+
+                if (i + 1) % num_areas_per_page == 0:
+                    doc.add_page_break()
+
+        i += 1
+
+    # 保存Word文档
+    output_docx = '订单信息.docx'
+    doc.save(output_docx)
+    messagebox.showinfo("成功", f"已将数据写入 {output_docx}")
+
+def browse_file():
+    file_path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
+    if file_path:
+        entry_file.delete(0, tk.END)
+        entry_file.insert(0, file_path)
+
+def generate_document():
+    excel_file = entry_file.get()
+    num_areas_per_page = int(var_num_areas.get())
+
+    if excel_file and num_areas_per_page:
+        create_word_document(excel_file, num_areas_per_page)
+    else:
+        messagebox.showwarning("警告", "请填写所有字段")
+
+# 创建主窗口
+root = tk.Tk()
+root.title("订单信息生成器")
+
+# 创建文件选择部分
+frame_file = tk.Frame(root)
+frame_file.pack(pady=10)
+
+label_file = tk.Label(frame_file, text="选择Excel文件:")
+label_file.pack(side=tk.LEFT)
+
+entry_file = tk.Entry(frame_file, width=50)
+entry_file.pack(side=tk.LEFT)
+
+button_browse = tk.Button(frame_file, text="浏览", command=browse_file)
+button_browse.pack(side=tk.LEFT)
+
+# 创建每页单元格数量部分
+frame_num_areas = tk.Frame(root)
+frame_num_areas.pack(pady=10)
+
+label_num_areas = tk.Label(frame_num_areas, text="每页单元格数量:")
+label_num_areas.pack(side=tk.LEFT)
+
+var_num_areas = tk.StringVar(value="10")
+option_menu_num_areas = tk.OptionMenu(frame_num_areas, var_num_areas, "10", "21")
+option_menu_num_areas.pack(side=tk.LEFT)
+
+# 创建生成按钮
+button_generate = tk.Button(root, text="生成文档", command=generate_document)
+button_generate.pack(pady=20)
+
+# 运行主循环
+root.mainloop()
