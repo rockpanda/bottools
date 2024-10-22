@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+#pip install pandas python-docx
+import pandas as pd
+from docx import Document
+from docx.shared import Mm
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+
+# 读取Excel文件
+excel_file = '订单列表.xlsx'  # 替换为你的Excel文件路径
+sheet_name = '订单列表'  # 替换为你的Sheet名称
+
+# 读取Excel中的数据
+df = pd.read_excel(excel_file, sheet_name=sheet_name)
+
+# 提取“下单人”和“商品”列的数据
+order_persons = df['下单人'].tolist()
+products = df['商品'].tolist()
+
+# 创建一个新的Word文档
+doc = Document()
+
+# 设置页面布局
+section = doc.sections[0]
+section.page_height = Mm(297)  # A4纸的高度 297mm
+section.page_width = Mm(210)  # A4纸的宽度 210mm
+section.left_margin = Mm(5)
+section.right_margin = Mm(5)
+section.top_margin = Mm(5)
+section.bottom_margin = Mm(5)
+
+# 设置分栏
+sectPr = section._sectPr
+cols = sectPr.xpath('./w:cols')[0]
+cols.set(qn('w:num'), '2')  # 设置分栏数为2
+
+# 计算每个区域的宽度和高度
+area_width = Mm(100)  # 100mm
+area_height = Mm(55)  # 55mm
+
+# 每页10个区域
+num_areas_per_page = 10
+
+# 添加数据到每个区域
+for i, (order_person, product) in enumerate(zip(order_persons, products)):
+	# 计算当前区域的行和列
+	row = i // 2
+	col = i % 2
+	
+	# 计算当前区域的左上角位置
+	left = col * area_width
+	top = row * area_height
+	
+	# 添加表格
+	table = doc.add_table(rows=1, cols=1)
+	table.style = 'Table Grid'
+	table.autofit = False
+	table.allow_autofit = False
+	table.columns[0].width = area_width
+	table.rows[0].height = area_height
+	
+	# 设置表格位置
+	table.alignment = WD_ALIGN_PARAGRAPH.CENTER
+	table.left_indent = left
+	table.top_indent = top
+	
+	# 填充表格数据
+	cell = table.cell(0, 0)
+	# 在“下单人”和“商品”之间插入一个换行符
+	cell.text = f"{order_person}\n{product}"
+	cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+	
+	# 设置垂直对齐方式
+	tc = cell._tc
+	tcPr = tc.get_or_add_tcPr()
+	vAlign = OxmlElement('w:vAlign')
+	vAlign.set(qn('w:val'), 'center')
+	tcPr.append(vAlign)
+	
+	# 每10个区域后插入一个分页符
+	if (i + 1) % num_areas_per_page == 0:
+		doc.add_page_break()
+		
+# 保存Word文档
+output_docx = '订单信息.docx'  # 替换为你想要保存的Word文件路径
+doc.save(output_docx)
+
+print(f"已将数据写入 {output_docx}")
